@@ -529,49 +529,45 @@ h1 {
 
 /* Themes */
 body.theme-light {
-  --bg-primary: #f5f5f5;
-  --bg-secondary: #fff;
-  --bg-tertiary: #e8e8e8;
-  --text-primary: #222;
-  --text-secondary: #666;
-  --text-tertiary: #999;
-  --accent: #e94560;
-  --accent-hover: #ff6b82;
-  --border: #ddd;
-  --shadow: rgba(233, 69, 96, 0.3);
+  --bg-primary: #fafbfc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f0f2f5;
+  --text-primary: #1c1e21;
+  --text-secondary: #606770;
+  --text-tertiary: #8a8d91;
+  --accent: #0084ff;
+  --accent-hover: #0073e6;
+  --border: #dadde1;
+  --shadow: rgba(0, 132, 255, 0.25);
+  background: linear-gradient(135deg, #fafbfc 0%, #e8eef5 100%);
 }
-body.theme-light {
-  background: linear-gradient(135deg, #f5f5f5 0%, #ffffff 50%, #fafafa 100%);
-}
+
 body.theme-sakura {
-  --bg-primary: #2d1b2e;
-  --bg-secondary: #4a2d3f;
-  --bg-tertiary: #633950;
-  --text-primary: #ffd6e8;
-  --text-secondary: #e8b4cc;
-  --text-tertiary: #c092a6;
-  --accent: #ff69b4;
-  --accent-hover: #ff8fc7;
-  --border: #7a4a5e;
-  --shadow: rgba(255, 105, 180, 0.4);
+  --bg-primary: #2a1520;
+  --bg-secondary: #3d2230;
+  --bg-tertiary: #4f2f40;
+  --text-primary: #ffe4f0;
+  --text-secondary: #ffb8d9;
+  --text-tertiary: #d08bb8;
+  --accent: #ff85c0;
+  --accent-hover: #ffa5d4;
+  --border: #5a3545;
+  --shadow: rgba(255, 133, 192, 0.4);
+  background: linear-gradient(135deg, #2a1520 0%, #3d2230 50%, #4f2f40 100%);
 }
-body.theme-sakura {
-  background: linear-gradient(135deg, #2d1b2e 0%, #4a2d3f 50%, #3d2535 100%);
-}
+
 body.theme-forest {
-  --bg-primary: #1a2e1a;
-  --bg-secondary: #2d4a2d;
-  --bg-tertiary: #3f633f;
-  --text-primary: #e0ffe0;
-  --text-secondary: #b8e6b8;
-  --text-tertiary: #8ab88a;
-  --accent: #7ec850;
-  --accent-hover: #96d96e;
-  --border: #4a634a;
-  --shadow: rgba(126, 200, 80, 0.4);
-}
-body.theme-forest {
-  background: linear-gradient(135deg, #1a2e1a 0%, #2d4a2d 50%, #233b23 100%);
+  --bg-primary: #132116;
+  --bg-secondary: #1f3322;
+  --bg-tertiary: #2b452e;
+  --text-primary: #d4f1d4;
+  --text-secondary: #a8d9a8;
+  --text-tertiary: #7cba7c;
+  --accent: #6abf69;
+  --accent-hover: #85d684;
+  --border: #3a5a3a;
+  --shadow: rgba(106, 191, 105, 0.4);
+  background: linear-gradient(135deg, #132116 0%, #1f3322 50%, #2b452e 100%);
 }
 
 /* 触摸优化 */
