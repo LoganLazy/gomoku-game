@@ -10,7 +10,8 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const rooms = new Map();
-let waitingPlayer = null;
+const waitingQueue = [];
+const ROOM_EXPIRE_TIME = 10 * 60 * 1000; // 10分钟未满人自动清理
 
 // 题库（与客户端同步）
 const questions = [
@@ -81,18 +82,42 @@ function checkWin(board, row, col) {
   return false;
 }
 
-function createRoom(id) {
-  return { id, players: [], board: Array.from({length:15}, ()=>Array(15).fill(0)), turn: 1, round: 0 };
+function createRoom(id, isPrivate = false) {
+  return {
+    id,
+    players: [],
+    board: Array.from({length:15}, ()=>Array(15).fill(0)),
+    turn: 1,
+    round: 0,
+    isPrivate,
+    createdAt: Date.now(),
+    turnStartTime: null
+  };
 }
 
 function resetBoard(room) {
   room.board = Array.from({length:15}, ()=>Array(15).fill(0));
   room.turn = 1;
   room.round++;
+  room.turnStartTime = Date.now();
+}
+
+function getOnlineCount() {
+  return wss.clients.size;
+}
+
+function broadcastOnlineCount() {
+  const count = getOnlineCount();
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify({ type: 'online_count', count }));
+    }
+  });
 }
 
 wss.on('connection', (ws) => {
   let player = { ws, room: null, index: 0 };
+  broadcastOnlineCount();
 
   ws.on('message', (raw) => {
     let msg;
@@ -100,26 +125,32 @@ wss.on('connection', (ws) => {
 
     switch (msg.type) {
       case 'match': {
-        if (waitingPlayer && waitingPlayer.ws.readyState === 1) {
-          const room = createRoom(genRoomId());
+        if (waitingQueue.length > 0) {
+          const waitingPlayer = waitingQueue.shift();
+          if (waitingPlayer.ws.readyState !== 1) {
+            waitingQueue.push(player);
+            ws.send(JSON.stringify({ type: 'waiting' }));
+            break;
+          }
+          const room = createRoom(genRoomId(), false);
           waitingPlayer.room = room;
           waitingPlayer.index = 1;
           player.room = room;
           player.index = 2;
           room.players = [waitingPlayer, player];
+          room.turnStartTime = Date.now();
           rooms.set(room.id, room);
-          waitingPlayer = null;
-          broadcast(room, { type: 'start', roomId: room.id });
+          broadcast(room, { type: 'start', roomId: room.id, isPrivate: false });
           room.players[0].ws.send(JSON.stringify({ type: 'role', index: 1 }));
           room.players[1].ws.send(JSON.stringify({ type: 'role', index: 2 }));
         } else {
-          waitingPlayer = player;
+          waitingQueue.push(player);
           ws.send(JSON.stringify({ type: 'waiting' }));
         }
         break;
       }
       case 'create': {
-        const room = createRoom(genRoomId());
+        const room = createRoom(genRoomId(), true);
         player.room = room;
         player.index = 1;
         room.players = [player];
@@ -134,7 +165,8 @@ wss.on('connection', (ws) => {
         player.room = room;
         player.index = 2;
         room.players.push(player);
-        broadcast(room, { type: 'start', roomId: room.id });
+        room.turnStartTime = Date.now();
+        broadcast(room, { type: 'start', roomId: room.id, isPrivate: room.isPrivate });
         room.players[0].ws.send(JSON.stringify({ type: 'role', index: 1 }));
         room.players[1].ws.send(JSON.stringify({ type: 'role', index: 2 }));
         break;
@@ -145,6 +177,7 @@ wss.on('connection', (ws) => {
         const { row, col } = msg;
         if (row<0||row>14||col<0||col>14||room.board[row][col]) break;
         room.board[row][col] = player.index;
+        room.turnStartTime = Date.now();
         broadcast(room, { type: 'move', row, col, piece: player.index });
         if (checkWin(room.board, row, col)) {
           const loser = player.index === 1 ? 2 : 1;
@@ -184,20 +217,20 @@ wss.on('connection', (ws) => {
       }
       case 'undo_request': {
         const room = player.room;
-        if (!room) break;
+        if (!room || !room.isPrivate) break;
         const other = room.players.find(p => p.index !== player.index);
         if (other) other.ws.send(JSON.stringify({ type: 'undo_request' }));
         break;
       }
       case 'undo_accept': {
         const room = player.room;
-        if (!room) break;
+        if (!room || !room.isPrivate) break;
         broadcast(room, { type: 'undo_accept' });
         break;
       }
       case 'undo_reject': {
         const room = player.room;
-        if (!room) break;
+        if (!room || !room.isPrivate) break;
         const other = room.players.find(p => p.index !== player.index);
         if (other) other.ws.send(JSON.stringify({ type: 'undo_reject' }));
         break;
@@ -206,12 +239,19 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (waitingPlayer === player) waitingPlayer = null;
+    const idx = waitingQueue.findIndex(p => p === player);
+    if (idx !== -1) waitingQueue.splice(idx, 1);
+
     const room = player.room;
-    if (room) {
-      broadcast(room, { type: 'opponent_left' });
-      rooms.delete(room.id);
+    if (room && room.players.length === 2) {
+      const other = room.players.find(p => p !== player);
+      if (other && other.ws.readyState === 1) {
+        other.ws.send(JSON.stringify({ type: 'opponent_left' }));
+      }
     }
+    if (room) rooms.delete(room.id);
+
+    broadcastOnlineCount();
   });
 });
 
@@ -219,3 +259,14 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`服务器运行在 http://0.0.0.0:${PORT}`);
 });
+
+// 定期清理过期房间
+setInterval(() => {
+  const now = Date.now();
+  rooms.forEach((room, id) => {
+    if (room.players.length < 2 && now - room.createdAt > ROOM_EXPIRE_TIME) {
+      rooms.delete(id);
+      console.log(`房间 ${id} 已过期清理`);
+    }
+  });
+}, 60000); // 每分钟检查一次

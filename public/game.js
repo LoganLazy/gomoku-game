@@ -1,37 +1,13 @@
-const questions = [
-  // Level 1 - 破冰
-  ["你的择偶标准前三是什么？","你最近一次心动是什么时候？","你觉得自己最吸引人的地方是？",
-   "你手机里最舍不得删的一张照片是什么内容？","你最喜欢被夸什么？","你理想中的约会是怎样的？",
-   "你最近在循环的一首歌是？","你觉得暧昧期最甜的瞬间是什么？","你现在是单身吗？多久了？"],
-  // Level 2 - 暧昧
-  ["你有没有偷偷关注过一个人很久？","你会因为什么瞬间喜欢上一个人？",
-   "你谈过几段恋爱？最长的多久？","你最想被另一半怎么宠？","你有没有说过违心的分手？",
-   "你最怕恋爱中遇到什么？","深夜最容易想起谁？","你觉得网聊能聊出真感情吗？"],
-  // Level 3 - 走心
-  ["你上一段感情为什么结束？","你做过最疯狂的追人举动是什么？","你有没有为一个人改变过自己？",
-   "你觉得爱情里最不能忍的是什么？","你现在对感情是什么态度？","你有没有喜欢过不该喜欢的人？",
-   "你最想对前任说的一句话是？","你觉得自己值得被爱吗？","你会为了喜欢的人主动到什么程度？"],
-  // Level 4 - 入骨
-  ["你最敏感的身体部位是哪里？","你喜欢主动的还是被撩的？","你能接受暧昧期多久不确定关系？",
-   "你对亲密接触的底线在哪？","你最受不了被什么方式撩？","你觉得接吻最重要的是技巧还是感觉？",
-   "你会在什么情况下主动吻一个人？","你有没有只是因为寂寞而找过人？",
-   "你最想和喜欢的人一起做的事是什么？不许说正经的。","你有没有被撩到过心跳加速？对方做了什么？"],
-  // Level 5 - 致命
-  ["你最大胆的一次经历是什么？","你有什么不为人知的癖好？","你洗完澡第一件事是什么？",
-   "你有没有在不该心动的时候心动过？后来怎样了？","你最想在什么场景下和喜欢的人独处？",
-   "你半夜睡不着的时候一般在想什么？","你有没有因为太想一个人而失眠？在想什么？",
-   "说一句你从来没对别人说过的心里话。","你做过最出格的梦是什么内容？"],
-  // Level 6 - 18+
-  ["你最享受的一次是什么体验？细说。","你有什么特殊的性癖好是没告诉过别人的？",
-   "你最想尝试但还没试过的姿势或玩法是什么？","你最受不了对方在床上做什么？",
-   "你有没有在不该有感觉的场合突然有了反应？","你最持久的一次多久？什么情况下？",
-   "你对dirty talk什么感觉？会说什么？","你有没有自己解决过？频率多少？",
-   "你穿着方面有什么能让你瞬间来感觉的？","你最想在什么地方做一次？"]
+// 删除前端题库，统一使用后端（AI模式除外需要保留简单题库）
+const aiQuestions = [
+  ["你最近开心的事？","最想去的地方？","最喜欢的季节？"],
+  ["最难忘的回忆？","最想学的技能？","最珍惜的人？"],
+  ["人生目标是什么？","最后悔的决定？","最想改变什么？"]
 ];
 
 // State
-let ws, myIndex, currentRound = 0, isMyTurn = false, gameOver = false;
-let aiMode = false, moveHistory = [], timerInterval, timeLeft = 60;
+let ws, myIndex, currentRound = 0, isMyTurn = false, gameOver = false, currentQuestion = '';
+let aiMode = false, moveHistory = [], timerInterval, timeLeft = 60, isPrivateRoom = false;
 let settings = {
   sound: true,
   vibrate: true,
@@ -146,6 +122,11 @@ function connect() {
 
 function handleMsg(msg) {
   switch (msg.type) {
+    case 'online_count':
+      if ($('stat-online')) {
+        $('stat-online').textContent = `在线: ${msg.count}`;
+      }
+      break;
     case 'waiting':
       showScreen('screen-waiting');
       $('waiting-text').textContent = '正在匹配对手...';
@@ -157,9 +138,11 @@ function handleMsg(msg) {
       $('room-code').textContent = msg.roomId;
       break;
     case 'start':
+      isPrivateRoom = msg.isPrivate;
       showScreen('screen-game');
       gameOver = false;
       moveHistory = [];
+      updateUndoButton();
       break;
     case 'role':
       myIndex = msg.index;
@@ -193,6 +176,7 @@ function handleMsg(msg) {
       }
       storage.set('stats', stats);
       updateStats();
+      currentQuestion = msg.question;
       showTruth(msg.winner, msg.loser, msg.round, msg.question);
       break;
     case 'again_request':
@@ -209,6 +193,7 @@ function handleMsg(msg) {
       showScreen('screen-game');
       updateStatus();
       drawBoard();
+      updateUndoButton();
       if (isMyTurn) startTimer();
       break;
     case 'truth_answer':
@@ -256,6 +241,17 @@ function handleMsg(msg) {
   }
 }
 
+function updateUndoButton() {
+  const btn = $('btn-undo');
+  if (isPrivateRoom) {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  } else {
+    btn.disabled = true;
+    btn.style.opacity = '0.3';
+  }
+}
+
 function updateStatus() {
   if (gameOver) return;
   $('game-status').textContent = isMyTurn ? '轮到你了' : '等待对方落子';
@@ -273,7 +269,7 @@ function getQuestion(round) {
 function showTruth(winner, loser, round, question) {
   showScreen('screen-truth');
   const iAmLoser = myIndex === loser;
-  const q = question || getQuestion(round); // 优先使用服务端问题，AI模式用本地
+  const q = question || (aiMode ? getAIQuestion(round) : '等待问题...');
   $('truth-question').textContent = q;
 
   if (iAmLoser) {
@@ -281,22 +277,21 @@ function showTruth(winner, loser, round, question) {
     $('truth-input-area').classList.remove('hidden');
     $('truth-wait').classList.add('hidden');
     $('truth-result').classList.add('hidden');
-    $('btn-again').classList.add('hidden');
+    saveHistory(q, '', false);
   } else {
-    $('truth-title').textContent = '你赢了！等对方回答';
+    $('truth-title').textContent = '你赢了！';
     $('truth-input-area').classList.add('hidden');
     $('truth-wait').classList.remove('hidden');
     $('truth-result').classList.add('hidden');
-    $('btn-again').classList.add('hidden');
   }
+  $('btn-again').classList.add('hidden');
+  $('btn-again').textContent = '再来一局';
 }
 
-function addChatMessage(text, isMe) {
-  const msg = document.createElement('div');
-  msg.className = 'chat-msg' + (isMe ? ' me' : '');
-  msg.textContent = text;
-  $('chat-messages').appendChild(msg);
-  $('chat-messages').scrollTop = $('chat-messages').scrollHeight;
+function getAIQuestion(round) {
+  const level = Math.min(Math.floor(round / 2), aiQuestions.length - 1);
+  const pool = aiQuestions[level];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function addChatMessage(text, isMe) {
