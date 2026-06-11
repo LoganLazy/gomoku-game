@@ -48,7 +48,34 @@ Windows 查看 IP：
 ipconfig
 ```
 
-### 服务器部署
+### Docker 部署
+
+**使用 Docker Compose（推荐）**：
+
+```bash
+docker-compose up -d
+```
+
+**使用 Docker**：
+
+```bash
+docker build -t wuziqi .
+docker run -d -p 3000:3000 --name wuziqi --restart unless-stopped wuziqi
+```
+
+查看日志：
+```bash
+docker logs -f wuziqi
+```
+
+停止服务：
+```bash
+docker-compose down
+# 或
+docker stop wuziqi
+```
+
+### 服务器部署（PM2）
 
 ```bash
 npm install

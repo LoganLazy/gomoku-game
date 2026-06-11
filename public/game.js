@@ -269,13 +269,6 @@ function updateStatus() {
   $('score-info').textContent = `第 ${currentRound + 1} 局 · 你是${myIndex===1?'⚫黑棋':'⚪白棋'}`;
 }
 
-function getQuestion(round) {
-  const maxLevel = settings.nsfw ? questions.length - 1 : questions.length - 2;
-  const level = Math.min(Math.floor(round / 2), maxLevel);
-  const pool = questions[level];
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-
 function showTruth(winner, loser, round, question) {
   showScreen('screen-truth');
   const iAmLoser = myIndex === loser;
