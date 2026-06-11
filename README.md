@@ -2,6 +2,8 @@
 
 > 一个 H5 双人对战小游戏。陌生人匹配下五子棋，输的人回答真心话，问题越聊越深。
 
+⚠️ **内容提示**：本项目包含成人内容（18+ 题库），仅限成年用户使用。可在游戏设置中关闭。
+
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## 🎮 特性
