@@ -918,7 +918,7 @@ $('btn-close-history').onclick = () => showScreen('screen-lobby');
 
 $('btn-theme').onclick = () => {
   showScreen('screen-theme');
-  const current = storage.get('theme', 'default');
+  const current = storage.get('theme', 'light');
   document.querySelectorAll('.theme-item').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.theme === current);
   });
@@ -930,7 +930,7 @@ document.querySelectorAll('.theme-item').forEach(btn => {
   btn.onclick = () => {
     const theme = btn.dataset.theme;
     storage.set('theme', theme);
-    document.body.className = theme === 'default' ? '' : 'theme-' + theme;
+    document.body.className = theme === 'light' ? '' : 'theme-' + theme;
     document.querySelectorAll('.theme-item').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
   };
@@ -965,8 +965,8 @@ $('btn-create').onclick = () => {
 // Init
 settings = storage.get('settings', settings);
 roomSettings = storage.get('roomSettings', roomSettings);
-const theme = storage.get('theme', 'default');
-if (theme !== 'default') document.body.className = 'theme-' + theme;
+const theme = storage.get('theme', 'light');
+if (theme !== 'light') document.body.className = 'theme-' + theme;
 updateStats();
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
