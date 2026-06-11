@@ -798,12 +798,22 @@ canvas.addEventListener('click', (e) => {
 });
 
 // Event listeners
-$('btn-match').onclick = () => { aiMode = false; connect(); ws.send(JSON.stringify({ type: 'match' })); };
+$('btn-match').onclick = () => {
+  aiMode = false;
+  if (!ws || ws.readyState !== 1) connect();
+  setTimeout(() => {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'match' }));
+  }, 100);
+};
+
 $('btn-join').onclick = () => {
   aiMode = false;
-  connect();
   const id = $('input-room').value.trim();
-  if (id) ws.send(JSON.stringify({ type: 'join', roomId: id }));
+  if (!id) return;
+  if (!ws || ws.readyState !== 1) connect();
+  setTimeout(() => {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'join', roomId: id }));
+  }, 100);
 };
 $('btn-ai').onclick = () => {
   aiMode = true;
@@ -945,8 +955,11 @@ $('btn-close-settings').onclick = () => {
 };
 
 $('btn-create').onclick = () => {
-  connect();
-  ws.send(JSON.stringify({ type: 'create', settings: roomSettings }));
+  aiMode = false;
+  if (!ws || ws.readyState !== 1) connect();
+  setTimeout(() => {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'create', settings: roomSettings }));
+  }, 100);
 };
 
 // Init
