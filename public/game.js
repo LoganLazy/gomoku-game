@@ -8,11 +8,10 @@ const aiQuestions = [
 // State
 let ws, myIndex, currentRound = 0, isMyTurn = false, gameOver = false, currentQuestion = '';
 let aiMode = false, moveHistory = [], timerInterval, timeLeft = 60, isPrivateRoom = false;
+let roomSettings = { timer: 60, nsfw: true };
 let settings = {
   sound: true,
-  vibrate: true,
-  timer: 60,
-  nsfw: true
+  vibrate: true
 };
 
 // Storage
@@ -77,7 +76,7 @@ function saveHistory(question, answer, isWin) {
 
 function startTimer() {
   stopTimer();
-  timeLeft = settings.timer;
+  timeLeft = roomSettings.timer;
   updateTimerDisplay();
   timerInterval = setInterval(() => {
     timeLeft--;
@@ -139,10 +138,21 @@ function handleMsg(msg) {
       break;
     case 'start':
       isPrivateRoom = msg.isPrivate;
+      if (msg.settings) {
+        roomSettings = msg.settings;
+      }
       showScreen('screen-game');
       gameOver = false;
       moveHistory = [];
       updateUndoButton();
+      break;
+    case 'created':
+      if (msg.settings) {
+        roomSettings = msg.settings;
+      }
+      showScreen('screen-waiting');
+      $('waiting-text').textContent = '等待对方加入';
+      $('room-code').textContent = msg.roomId;
       break;
     case 'role':
       myIndex = msg.index;
@@ -788,10 +798,10 @@ canvas.addEventListener('click', (e) => {
 });
 
 // Event listeners
-$('btn-match').onclick = () => { aiMode = false; ws.send(JSON.stringify({ type: 'match' })); };
-$('btn-create').onclick = () => { aiMode = false; ws.send(JSON.stringify({ type: 'create' })); };
+$('btn-match').onclick = () => { aiMode = false; connect(); ws.send(JSON.stringify({ type: 'match' })); };
 $('btn-join').onclick = () => {
   aiMode = false;
+  connect();
   const id = $('input-room').value.trim();
   if (id) ws.send(JSON.stringify({ type: 'join', roomId: id }));
 };
@@ -920,21 +930,28 @@ $('btn-settings').onclick = () => {
   showScreen('screen-settings');
   $('setting-sound').checked = settings.sound;
   $('setting-vibrate').checked = settings.vibrate;
-  $('setting-timer').value = settings.timer;
-  $('setting-nsfw').checked = settings.nsfw;
+  $('setting-timer').value = roomSettings.timer;
+  $('setting-nsfw').checked = roomSettings.nsfw;
 };
 
 $('btn-close-settings').onclick = () => {
   settings.sound = $('setting-sound').checked;
   settings.vibrate = $('setting-vibrate').checked;
-  settings.timer = parseInt($('setting-timer').value) || 60;
-  settings.nsfw = $('setting-nsfw').checked;
+  roomSettings.timer = parseInt($('setting-timer').value) || 60;
+  roomSettings.nsfw = $('setting-nsfw').checked;
   storage.set('settings', settings);
+  storage.set('roomSettings', roomSettings);
   showScreen('screen-lobby');
+};
+
+$('btn-create').onclick = () => {
+  connect();
+  ws.send(JSON.stringify({ type: 'create', settings: roomSettings }));
 };
 
 // Init
 settings = storage.get('settings', settings);
+roomSettings = storage.get('roomSettings', roomSettings);
 const theme = storage.get('theme', 'default');
 if (theme !== 'default') document.body.className = 'theme-' + theme;
 updateStats();

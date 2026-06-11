@@ -45,8 +45,9 @@ const questions = [
    "你穿着方面有什么能让你瞬间来感觉的？","你最想在什么地方做一次？"]
 ];
 
-function getQuestion(round) {
-  const level = Math.min(Math.floor(round / 2), questions.length - 1);
+function getQuestion(round, nsfw = true) {
+  const maxLevel = nsfw ? questions.length - 1 : questions.length - 2;
+  const level = Math.min(Math.floor(round / 2), maxLevel);
   const pool = questions[level];
   return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -82,7 +83,7 @@ function checkWin(board, row, col) {
   return false;
 }
 
-function createRoom(id, isPrivate = false) {
+function createRoom(id, isPrivate = false, settings = {}) {
   return {
     id,
     players: [],
@@ -91,7 +92,11 @@ function createRoom(id, isPrivate = false) {
     round: 0,
     isPrivate,
     createdAt: Date.now(),
-    turnStartTime: null
+    turnStartTime: null,
+    settings: {
+      timer: settings.timer || 60,
+      nsfw: settings.nsfw !== undefined ? settings.nsfw : true
+    }
   };
 }
 
@@ -140,7 +145,7 @@ wss.on('connection', (ws) => {
           room.players = [waitingPlayer, player];
           room.turnStartTime = Date.now();
           rooms.set(room.id, room);
-          broadcast(room, { type: 'start', roomId: room.id, isPrivate: false });
+          broadcast(room, { type: 'start', roomId: room.id, isPrivate: false, settings: room.settings });
           room.players[0].ws.send(JSON.stringify({ type: 'role', index: 1 }));
           room.players[1].ws.send(JSON.stringify({ type: 'role', index: 2 }));
         } else {
@@ -150,12 +155,13 @@ wss.on('connection', (ws) => {
         break;
       }
       case 'create': {
-        const room = createRoom(genRoomId(), true);
+        const settings = msg.settings || {};
+        const room = createRoom(genRoomId(), true, settings);
         player.room = room;
         player.index = 1;
         room.players = [player];
         rooms.set(room.id, room);
-        ws.send(JSON.stringify({ type: 'created', roomId: room.id }));
+        ws.send(JSON.stringify({ type: 'created', roomId: room.id, settings: room.settings }));
         break;
       }
       case 'join': {
@@ -166,7 +172,7 @@ wss.on('connection', (ws) => {
         player.index = 2;
         room.players.push(player);
         room.turnStartTime = Date.now();
-        broadcast(room, { type: 'start', roomId: room.id, isPrivate: room.isPrivate });
+        broadcast(room, { type: 'start', roomId: room.id, isPrivate: room.isPrivate, settings: room.settings });
         room.players[0].ws.send(JSON.stringify({ type: 'role', index: 1 }));
         room.players[1].ws.send(JSON.stringify({ type: 'role', index: 2 }));
         break;
@@ -181,7 +187,7 @@ wss.on('connection', (ws) => {
         broadcast(room, { type: 'move', row, col, piece: player.index });
         if (checkWin(room.board, row, col)) {
           const loser = player.index === 1 ? 2 : 1;
-          const question = getQuestion(room.round);
+          const question = getQuestion(room.round, room.settings.nsfw);
           broadcast(room, { type: 'win', winner: player.index, loser, round: room.round, question });
         } else {
           room.turn = room.turn === 1 ? 2 : 1;

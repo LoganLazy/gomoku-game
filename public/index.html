@@ -115,8 +115,22 @@
 
   <div id="screen-settings" class="screen">
     <div class="modal-box">
-      <h2>设置</h2>
+      <h2>房间设置</h2>
+      <p class="subtitle" style="font-size:0.9em;color:#aaa;margin:-10px 0 15px">创建房间前设置，双方同步</p>
       <div class="settings-list">
+        <label class="setting-item">
+          <span>倒计时 (秒)</span>
+          <select id="setting-timer">
+            <option value="30">30秒</option>
+            <option value="60" selected>60秒</option>
+            <option value="120">120秒</option>
+          </select>
+        </label>
+        <label class="setting-item">
+          <span>18+ 题库</span>
+          <input type="checkbox" id="setting-nsfw" checked>
+        </label>
+        <hr style="border:none;border-top:1px solid #333;margin:15px 0">
         <label class="setting-item">
           <span>音效</span>
           <input type="checkbox" id="setting-sound" checked>
@@ -124,14 +138,6 @@
         <label class="setting-item">
           <span>震动反馈</span>
           <input type="checkbox" id="setting-vibrate" checked>
-        </label>
-        <label class="setting-item">
-          <span>倒计时 (秒)</span>
-          <input type="number" id="setting-timer" value="60" min="10" max="300">
-        </label>
-        <label class="setting-item">
-          <span>18+ 题库</span>
-          <input type="checkbox" id="setting-nsfw" checked>
         </label>
       </div>
       <button id="btn-close-settings" class="btn">关闭</button>
