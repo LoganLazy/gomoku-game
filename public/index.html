@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="description" content="双人对战五子棋，输了回答真心话">
+<title>五子棋 · 真心话</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="真心话">
+</head>
+<body>
+<div id="app">
+  <div id="screen-lobby" class="screen active">
+    <div class="lobby-header">
+      <h1>五子棋 · 真心话</h1>
+      <p class="subtitle">输了要回答真心话哦</p>
+      <div class="stats">
+        <span id="stat-wins">胜: 0</span>
+        <span id="stat-total">总: 0</span>
+        <span id="stat-streak">连胜: 0</span>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button id="btn-match" class="btn btn-primary">随机匹配</button>
+      <button id="btn-create" class="btn">创建房间</button>
+      <button id="btn-ai" class="btn">单机 AI</button>
+    </div>
+    <div class="join-row">
+      <input id="input-room" type="text" placeholder="输入房间号" maxlength="6">
+      <button id="btn-join" class="btn btn-small">加入</button>
+    </div>
+    <div class="lobby-footer">
+      <button id="btn-history" class="btn-icon">📜 历史</button>
+      <button id="btn-theme" class="btn-icon">🎨 主题</button>
+      <button id="btn-settings" class="btn-icon">⚙️ 设置</button>
+    </div>
+  </div>
+
+  <div id="screen-waiting" class="screen">
+    <div class="waiting-box">
+      <div class="spinner"></div>
+      <p id="waiting-text">正在匹配对手...</p>
+      <p id="room-code" class="room-code"></p>
+    </div>
+  </div>
+
+  <div id="screen-game" class="screen">
+    <div class="game-header">
+      <span id="game-status">对方执黑先行</span>
+      <span id="game-timer" class="timer"></span>
+    </div>
+    <canvas id="board" width="330" height="330"></canvas>
+    <div class="game-footer">
+      <span id="score-info">第 1 局</span>
+      <div class="game-actions">
+        <button id="btn-undo" class="btn-small">悔棋</button>
+        <button id="btn-chat" class="btn-small">💬</button>
+        <button id="btn-spectate" class="btn-small">👁️</button>
+      </div>
+    </div>
+    <div id="chat-panel" class="chat-panel hidden">
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input id="chat-input" type="text" placeholder="说点什么..." maxlength="100">
+        <button id="btn-send-chat" class="btn-small">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="screen-truth" class="screen">
+    <div class="truth-box">
+      <h2 id="truth-title">真心话时间</h2>
+      <p id="truth-question" class="truth-q"></p>
+      <div id="truth-input-area">
+        <textarea id="truth-input" placeholder="诚实回答..." rows="3"></textarea>
+        <button id="btn-truth-submit" class="btn btn-primary">发送</button>
+      </div>
+      <div id="truth-wait" class="hidden">
+        <p>等待对方回答...</p>
+      </div>
+      <div id="truth-result" class="hidden">
+        <p class="truth-answer-label">对方的回答：</p>
+        <p id="truth-answer-text" class="truth-answer"></p>
+      </div>
+      <button id="btn-again" class="btn btn-primary hidden">再来一局</button>
+    </div>
+  </div>
+
+  <div id="screen-history" class="screen">
+    <div class="modal-box">
+      <h2>历史记录</h2>
+      <div id="history-list" class="history-list"></div>
+      <button id="btn-close-history" class="btn">关闭</button>
+    </div>
+  </div>
+
+  <div id="screen-theme" class="screen">
+    <div class="modal-box">
+      <h2>选择主题</h2>
+      <div class="theme-grid">
+        <button class="theme-item" data-theme="default">🌙 默认</button>
+        <button class="theme-item" data-theme="light">☀️ 浅色</button>
+        <button class="theme-item" data-theme="sakura">🌸 樱花</button>
+        <button class="theme-item" data-theme="forest">🌲 森林</button>
+      </div>
+      <button id="btn-close-theme" class="btn">关闭</button>
+    </div>
+  </div>
+
+  <div id="screen-settings" class="screen">
+    <div class="modal-box">
+      <h2>设置</h2>
+      <div class="settings-list">
+        <label class="setting-item">
+          <span>音效</span>
+          <input type="checkbox" id="setting-sound" checked>
+        </label>
+        <label class="setting-item">
+          <span>震动反馈</span>
+          <input type="checkbox" id="setting-vibrate" checked>
+        </label>
+        <label class="setting-item">
+          <span>倒计时 (秒)</span>
+          <input type="number" id="setting-timer" value="60" min="10" max="300">
+        </label>
+        <label class="setting-item">
+          <span>18+ 题库</span>
+          <input type="checkbox" id="setting-nsfw" checked>
+        </label>
+      </div>
+      <button id="btn-close-settings" class="btn">关闭</button>
+    </div>
+  </div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>

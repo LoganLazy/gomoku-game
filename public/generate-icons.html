@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>生成图标</title></head>
+<body>
+<h2>点击按钮生成图标</h2>
+<button onclick="generateIcon(192)">生成 icon-192.png</button>
+<button onclick="generateIcon(512)">生成 icon-512.png</button>
+<script>
+function generateIcon(size) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, size, size);
+
+  const grid = 5, cellSize = size / grid;
+  ctx.strokeStyle = '#16213e';
+  ctx.lineWidth = size / 80;
+  for (let i = 0; i <= grid; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * cellSize, 0);
+    ctx.lineTo(i * cellSize, size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i * cellSize);
+    ctx.lineTo(size, i * cellSize);
+    ctx.stroke();
+  }
+
+  const r = cellSize * 0.35;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(cellSize * 1.5, cellSize * 2.5, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(cellSize * 3.5, cellSize * 2.5, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#e94560';
+  ctx.font = `bold ${size * 0.15}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('❤', size / 2, size * 0.75);
+
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `icon-${size}.png`;
+    a.click();
+    alert(`已生成 icon-${size}.png，请保存到 public 目录`);
+  });
+}
+</script>
+</body>
+</html>
