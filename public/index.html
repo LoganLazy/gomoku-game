@@ -47,6 +47,7 @@
       <div class="spinner"></div>
       <p id="waiting-text">正在匹配对手...</p>
       <p id="room-code" class="room-code"></p>
+      <button id="btn-cancel-wait" class="btn">取消</button>
     </div>
   </div>
 
@@ -61,7 +62,6 @@
       <div class="game-actions">
         <button id="btn-undo" class="btn-small">悔棋</button>
         <button id="btn-chat" class="btn-small">💬</button>
-        <button id="btn-spectate" class="btn-small">👁️</button>
       </div>
     </div>
     <div id="chat-panel" class="chat-panel hidden">
@@ -128,8 +128,9 @@
         </label>
         <label class="setting-item">
           <span>18+ 题库</span>
-          <input type="checkbox" id="setting-nsfw" checked>
+          <input type="checkbox" id="setting-nsfw">
         </label>
+        <p class="subtitle" style="font-size:0.85em;color:#e94560;margin:-8px 0 10px">⚠️ 18+ 题库包含成人内容，仅限成年用户开启，默认关闭；开启后随机匹配的陌生人也会看到相关题目。</p>
         <hr style="border:none;border-top:1px solid #333;margin:15px 0">
         <label class="setting-item">
           <span>音效</span>
