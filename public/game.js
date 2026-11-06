@@ -1,14 +1,7 @@
-// 删除前端题库，统一使用后端（AI模式除外需要保留简单题库）
-const aiQuestions = [
-  ["你最近开心的事？","最想去的地方？","最喜欢的季节？"],
-  ["最难忘的回忆？","最想学的技能？","最珍惜的人？"],
-  ["人生目标是什么？","最后悔的决定？","最想改变什么？"]
-];
-
 // State
 let ws, myIndex, currentRound = 0, isMyTurn = false, gameOver = false, currentQuestion = '';
 let aiMode = false, moveHistory = [], timerInterval, timeLeft = 60, isPrivateRoom = false;
-let roomSettings = { timer: 60, nsfw: true };
+let roomSettings = { timer: 60, nsfw: false };
 let settings = {
   sound: true,
   vibrate: true
@@ -87,9 +80,15 @@ function startTimer() {
     }
     if (timeLeft <= 0) {
       stopTimer();
-      if (isMyTurn && !aiMode) {
-        alert('超时了！自动判负');
+      if (aiMode) {
+        // 单机模式没有服务端判定，超时只重置本回合计时
+        timeLeft = roomSettings.timer;
+        updateTimerDisplay();
+        startTimer();
+        return;
       }
+      // 联机模式只做展示：判负由服务端执行，随后会收到 win 消息
+      $('game-status').textContent = '时间到，等待服务端判定';
     }
   }, 1000);
 }
@@ -100,10 +99,6 @@ function stopTimer() {
     timerInterval = null;
   }
   $('game-timer').classList.remove('warning');
-}
-
-function updateTimerDisplay() {
-  $('game-timer').textContent = timeLeft + 's';
 }
 
 function updateTimerDisplay() {
@@ -132,6 +127,9 @@ function handleMsg(msg) {
       $('room-code').textContent = '';
       break;
     case 'created':
+      if (msg.settings) {
+        roomSettings = msg.settings;
+      }
       showScreen('screen-waiting');
       $('waiting-text').textContent = '等待对方加入';
       $('room-code').textContent = msg.roomId;
@@ -145,14 +143,6 @@ function handleMsg(msg) {
       gameOver = false;
       moveHistory = [];
       updateUndoButton();
-      break;
-    case 'created':
-      if (msg.settings) {
-        roomSettings = msg.settings;
-      }
-      showScreen('screen-waiting');
-      $('waiting-text').textContent = '等待对方加入';
-      $('room-code').textContent = msg.roomId;
       break;
     case 'role':
       myIndex = msg.index;
@@ -226,13 +216,15 @@ function handleMsg(msg) {
       }
       break;
     case 'undo_accept':
-      if (moveHistory.length >= 2) {
-        for (let i = 0; i < 2; i++) {
-          const last = moveHistory.pop();
-          board[last.row][last.col] = 0;
+      // 以服务端为准：按服务端给出的落子清单清子、按服务端 turn 恢复轮次
+      if (msg.moves) {
+        for (const m of msg.moves) {
+          board[m.row][m.col] = 0;
+          moveHistory = moveHistory.filter(
+            h => !(h.row === m.row && h.col === m.col));
         }
+        isMyTurn = msg.turn === myIndex;
         drawBoard();
-        isMyTurn = !isMyTurn;
         updateStatus();
         playSound(400, 50);
       }
@@ -272,7 +264,7 @@ function updateStatus() {
 function showTruth(winner, loser, round, question) {
   showScreen('screen-truth');
   const iAmLoser = myIndex === loser;
-  const q = question || (aiMode ? getAIQuestion(round) : '等待问题...');
+  const q = question || '等待问题...';
   $('truth-question').textContent = q;
 
   if (iAmLoser) {
@@ -280,7 +272,6 @@ function showTruth(winner, loser, round, question) {
     $('truth-input-area').classList.remove('hidden');
     $('truth-wait').classList.add('hidden');
     $('truth-result').classList.add('hidden');
-    saveHistory(q, '', false);
   } else {
     $('truth-title').textContent = '你赢了！';
     $('truth-input-area').classList.add('hidden');
@@ -289,12 +280,6 @@ function showTruth(winner, loser, round, question) {
   }
   $('btn-again').classList.add('hidden');
   $('btn-again').textContent = '再来一局';
-}
-
-function getAIQuestion(round) {
-  const level = Math.min(Math.floor(round / 2), aiQuestions.length - 1);
-  const pool = aiQuestions[level];
-  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function addChatMessage(text, isMe) {
@@ -581,7 +566,7 @@ function evaluatePosition(row, col, piece) {
 
   for (const [dr, dc] of directions) {
     const line = getLine(row, col, dr, dc, piece);
-    score += evaluateLine(line);
+    score += evaluateLine(line, piece);
   }
 
   return score;
@@ -614,33 +599,36 @@ function getLine(row, col, dr, dc, piece) {
   return line;
 }
 
-// 评估棋型价值
-function evaluateLine(line) {
+// 评估棋型价值（按棋子参数化：双方棋型都按同一套棋型评分，
+// 原版把棋子写死成 '2'，对手棋型永远评 0 分，minimax 看不见对手威胁）
+function evaluateLine(line, piece) {
   const str = line.join('');
+  const p = String(piece);
+  const has = (pattern) => new RegExp(pattern.replaceAll('2', p)).test(str);
 
   // 五连：必胜
-  if (/22222/.test(str)) return 100000;
+  if (has('22222')) return 100000;
 
   // 活四：下一步必胜
-  if (/022220/.test(str)) return 10000;
+  if (has('022220')) return 10000;
 
   // 冲四：需要再下一子形成五连
-  if (/22220|02222/.test(str)) return 5000;
+  if (has('22220|02222')) return 5000;
 
   // 活三：可以形成活四
-  if (/022200|002220|020220/.test(str)) return 3000;
+  if (has('022200|002220|020220')) return 3000;
 
   // 眠三：需要两步形成五连
-  if (/22200|02220|22020|20220/.test(str)) return 1000;
+  if (has('22200|02220|22020|20220')) return 1000;
 
   // 活二
-  if (/02200|00220|02020/.test(str)) return 500;
+  if (has('02200|00220|02020')) return 500;
 
   // 眠二
-  if (/22000|02200|20200/.test(str)) return 100;
+  if (has('22000|02200|20200')) return 100;
 
   // 活一
-  if (/02000|00200|00020/.test(str)) return 10;
+  if (has('02000|00200|00020')) return 10;
 
   return 0;
 }
@@ -700,9 +688,6 @@ function makeMove(row, col) {
 const canvas = $('board');
 const ctx = canvas.getContext('2d');
 let board = Array.from({length:15}, ()=>Array(15).fill(0));
-const CELL = 22;
-const PAD = 0;
-
 function resizeCanvas() {
   const w = Math.min(window.innerWidth - 40, 380);
   canvas.style.width = w + 'px';
@@ -791,6 +776,13 @@ canvas.addEventListener('click', (e) => {
 });
 
 // Event listeners
+$('btn-cancel-wait').onclick = () => {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'cancel' }));
+  }
+  showScreen('screen-lobby');
+};
+
 $('btn-match').onclick = () => {
   aiMode = false;
   if (!ws || ws.readyState !== 1) connect();
@@ -857,7 +849,7 @@ $('btn-truth-submit').onclick = () => {
   const answer = $('truth-input').value.trim();
   if (!answer) return;
   const q = $('truth-question').textContent;
-  saveHistory(q, answer, myIndex === (aiMode ? 1 : myIndex));
+  saveHistory(q, answer, false); // 提交回答的是输家
 
   if (aiMode) {
     $('truth-input-area').classList.add('hidden');
