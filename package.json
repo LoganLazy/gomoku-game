@@ -1,20 +1,21 @@
 {
   "name": "wuziqi",
-  "version": "2.0.0",
+  "version": "2.3.0",
   "description": "五子棋+真心话 H5手机游戏 - 双人对战，输了回答真心话",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/server.test.js"
   },
   "keywords": ["五子棋", "gomoku", "game", "h5", "websocket", "pwa"],
-  "author": "",
+  "author": "LoganLazy",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/wuziqi.git"
+    "url": "https://github.com/LoganLazy/gomoku-game.git"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "ws": "8.18.0",

@@ -1,16 +1,20 @@
-const CACHE_NAME = 'wuziqi-v1';
+const CACHE_NAME = 'wuziqi-v2';
 const urlsToCache = [
   '/',
   '/index.html',
   '/style.css',
   '/game.js',
-  '/manifest.json'
+  '/manifest.json',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon.svg'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => cache.addAll(urlsToCache))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -31,6 +35,6 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
