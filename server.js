@@ -165,9 +165,11 @@ function detachFromFinishedRoom(player) {
   player.index = 0;
 }
 
-function startServer(port) {
+function startServer(port, options = {}) {
   const app = express();
   app.use(express.static(path.join(__dirname, 'public')));
+  // 服务端心跳间隔：默认 30 秒；测试可传入更小的值
+  const HEARTBEAT_INTERVAL_MS = options.heartbeatIntervalMs || 30000;
 
   const server = http.createServer(app);
   // 注意：不做 Origin 校验。游戏常在局域网用电脑 IP / 手机直接访问，
@@ -185,8 +187,11 @@ function startServer(port) {
   }
 
   wss.on('connection', (ws) => {
-    let player = { ws, room: null, index: 0 };
+    let player = { ws, room: null, index: 0, clientId: null };
     let msgTimes = [];
+    // ws 层心跳：收到 pong 说明连接还活着
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
     broadcastOnlineCount();
 
     ws.on('message', (raw) => {
@@ -205,12 +210,32 @@ function startServer(port) {
       if (typeof msg.type !== 'string') return;
 
       switch (msg.type) {
+        case 'hello': {
+          // 持久客户端标识：只用于防止同一浏览器的两个连接互相匹配，
+          // 不做鉴权；非法值直接忽略（按无标识处理）
+          if (typeof msg.clientId === 'string' && msg.clientId.length > 0 && msg.clientId.length <= 128) {
+            player.clientId = msg.clientId;
+          }
+          break;
+        }
+        case 'ping': {
+          ws.send(JSON.stringify({ type: 'pong' }));
+          break;
+        }
         case 'match': {
           if (isBusy(player)) break;
           detachFromFinishedRoom(player);
           const waitingPlayer = waitingQueue.shift();
           if (waitingPlayer) {
             if (waitingPlayer.ws.readyState !== 1) {
+              waitingQueue.push(player);
+              ws.send(JSON.stringify({ type: 'waiting' }));
+              break;
+            }
+            // 同一 clientId 的两个连接（同一浏览器重复建连/两个标签页）
+            // 不能互相匹配：都留在队列里，等第三人进来再配对
+            if (waitingPlayer.clientId && player.clientId && waitingPlayer.clientId === player.clientId) {
+              waitingQueue.unshift(waitingPlayer);
               waitingQueue.push(player);
               ws.send(JSON.stringify({ type: 'waiting' }));
               break;
@@ -258,6 +283,11 @@ function startServer(port) {
           // players[1] 为 undefined 会抛错并拖垮整个服务进程。
           if (!room || room.players.length === 0 || room.players.length >= 2) {
             if (room && room.players.length === 0) rooms.delete(msg.roomId.toUpperCase());
+            ws.send(JSON.stringify({ type: 'error', msg: '无法加入该房间' }));
+            break;
+          }
+          // 不能加入自己创建的房间（同一浏览器的另一个连接）
+          if (room.players.some(p => p.clientId && player.clientId && p.clientId === player.clientId)) {
             ws.send(JSON.stringify({ type: 'error', msg: '无法加入该房间' }));
             break;
           }
@@ -399,6 +429,19 @@ function startServer(port) {
     });
   }, 60000); // 每分钟检查一次
 
+  // ws 层心跳：每轮 ping 所有客户端，两轮没回 pong 就判定连接已死并断开，
+  // 这样静默掉线的僵尸连接不会一直占着在线人数
+  const heartbeatTimer = setInterval(() => {
+    wss.clients.forEach((client) => {
+      if (client.isAlive === false) {
+        client.terminate();
+        return;
+      }
+      client.isAlive = false;
+      try { client.ping(); } catch { /* 已断开的连接直接忽略 */ }
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+
   return {
     server,
     wss,
@@ -407,6 +450,8 @@ function startServer(port) {
     close: () => new Promise(resolve => {
       clearInterval(timeoutTimer);
       clearInterval(expireTimer);
+      clearInterval(heartbeatTimer);
+      wss.clients.forEach((client) => { try { client.terminate(); } catch { /* ignore */ } });
       wss.close(() => server.close(resolve));
     })
   };
