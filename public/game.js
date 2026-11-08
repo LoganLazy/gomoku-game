@@ -141,7 +141,11 @@ function handleMsg(msg) {
       }
       showScreen('screen-game');
       gameOver = false;
+      // 新开一局必须清空棋盘与局数：board 是页面级全局变量，
+      // 不清会在新对局里继续显示上一把的棋子，且那些格子点不下去
+      board = Array.from({length:15}, ()=>Array(15).fill(0));
       moveHistory = [];
+      currentRound = 0;
       updateUndoButton();
       break;
     case 'role':

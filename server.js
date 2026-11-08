@@ -252,8 +252,12 @@ function startServer(port) {
             break;
           }
           const room = rooms.get(msg.roomId.toUpperCase());
-          // 不存在与已满返回同一条通用错误，避免被枚举探测
-          if (!room || room.players.length >= 2) {
+          // 不存在、已满或已空返回同一条通用错误，避免被枚举探测。
+          // 已空：对局结束后双方都 detach 走了，房间仍残留在 rooms 里；
+          // 若允许加入，room.players[0] 是加入者本人（index 却为 2），
+          // players[1] 为 undefined 会抛错并拖垮整个服务进程。
+          if (!room || room.players.length === 0 || room.players.length >= 2) {
+            if (room && room.players.length === 0) rooms.delete(msg.roomId.toUpperCase());
             ws.send(JSON.stringify({ type: 'error', msg: '无法加入该房间' }));
             break;
           }
