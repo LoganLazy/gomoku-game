@@ -7,6 +7,22 @@ let settings = {
   vibrate: true
 };
 
+// 连接管理：心跳、重连退避、发送队列
+let HEARTBEAT_INTERVAL_MS = 25000; // 每 25 秒发一次应用层 ping
+let PONG_WAIT_MS = 10000;          // 发出 ping 后等 pong 的最长时间
+let CONNECT_TIMEOUT_MS = 10000;    // 握手超过这么久没完成就当失败
+let RECONNECT_BASE_MS = 2000;      // 重连退避起点
+let RECONNECT_MAX_MS = 30000;      // 重连退避上限
+let reconnectDelay = RECONNECT_BASE_MS;
+let reconnectTimer = null;
+let connectTimer = null;
+let heartbeatTimer = null;
+let pongTimer = null;
+let sendQueue = [];
+let pendingLobbyAction = null; // 发出后还没收到服务端回应的大厅操作 { msg, sentOn }
+let audioCtx = null;
+let clientId = null;
+
 // Storage
 const storage = {
   get(key, def) {
@@ -20,6 +36,23 @@ const storage = {
   }
 };
 
+// 持久客户端标识：同一浏览器内的两个连接（重复建连/两个标签页）
+// 靠它让服务端不把自己和自己配成一局；不是鉴权凭证
+clientId = storage.get('clientId', null);
+if (typeof clientId !== 'string' || clientId.length === 0) {
+  clientId = genClientId();
+  storage.set('clientId', clientId);
+}
+
+function genClientId() {
+  try {
+    const c = typeof crypto !== 'undefined' ? crypto
+      : (typeof window !== 'undefined' ? window.crypto : null);
+    if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  } catch {}
+  return 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
 // Stats
 let stats = storage.get('stats', { wins: 0, total: 0, streak: 0, maxStreak: 0 });
 
@@ -32,15 +65,17 @@ function showScreen(id) {
   $(id).classList.add('active');
 }
 
+// 音效共用一个 AudioContext：每次新建从不关闭会在长会话里越积越多
 function playSound(freq = 440, duration = 50) {
   if (!settings.sound) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
     osc.frequency.value = freq;
-    osc.connect(ctx.destination);
+    osc.connect(audioCtx.destination);
     osc.start();
-    setTimeout(() => osc.stop(), duration);
+    osc.stop((audioCtx.currentTime || 0) + duration / 1000);
   } catch {}
 }
 
@@ -106,16 +141,173 @@ function updateTimerDisplay() {
 }
 
 // WebSocket
+function setConnStatus(text) {
+  const el = $('stat-conn');
+  if (el) el.textContent = text;
+}
+
 function connect() {
-  if (aiMode) return;
+  if (aiMode) return ws;
+  // 单连接保护：正在连接或已连接时直接复用，绝不建第二个
+  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return ws;
+  if (ws) {
+    try { ws.close(); } catch {}
+    ws = null;
+  }
+  stopHeartbeat();
+  if (connectTimer !== null) {
+    clearTimeout(connectTimer);
+    connectTimer = null;
+  }
+  setConnStatus('连接中…');
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}`);
-  ws.onmessage = (e) => handleMsg(JSON.parse(e.data));
-  ws.onclose = () => setTimeout(connect, 2000);
+  const sock = new WebSocket(`${proto}//${location.host}`);
+  ws = sock;
+  // 握手被中间盒子吞掉时不会触发 onclose/onerror：超过时限主动放弃重连
+  connectTimer = setTimeout(() => onConnectTimeout(sock), CONNECT_TIMEOUT_MS);
+  sock.onopen = () => {
+    if (sock !== ws) return;
+    if (connectTimer !== null) {
+      clearTimeout(connectTimer);
+      connectTimer = null;
+    }
+    reconnectDelay = RECONNECT_BASE_MS;
+    setConnStatus('已连接');
+    startHeartbeat();
+    // 先报身份，再把断线期间排队的消息发出去
+    sock.send(JSON.stringify({ type: 'hello', clientId }));
+    flushQueue();
+    // 上条大厅操作若是在旧连接上发出的、还没收到服务端回应，
+    // 在新连接上补发一次（服务端对重复 match/create/join 是幂等的）
+    if (pendingLobbyAction && pendingLobbyAction.sentOn !== sock) {
+      sock.send(JSON.stringify(pendingLobbyAction.msg));
+      pendingLobbyAction.sentOn = sock;
+    }
+  };
+  sock.onmessage = (e) => {
+    if (sock !== ws) return;
+    handleMsg(JSON.parse(e.data));
+  };
+  sock.onclose = () => {
+    if (sock !== ws) return;
+    if (connectTimer !== null) {
+      clearTimeout(connectTimer);
+      connectTimer = null;
+    }
+    ws = null;
+    stopHeartbeat();
+    setConnStatus('已断开，正在重连…');
+    scheduleReconnect();
+  };
+  sock.onerror = () => {};
+  return sock;
+}
+
+// 握手超时：连接没建起来，作废并重连（onclose 若随后触发会被守卫挡掉）
+function onConnectTimeout(sock) {
+  connectTimer = null;
+  if (sock !== ws) return;
+  ws = null;
+  setConnStatus('连接超时，正在重连…');
+  try {
+    if (sock.terminate) sock.terminate();
+    else sock.close();
+  } catch {}
+  scheduleReconnect();
+}
+
+function scheduleReconnect() {
+  if (aiMode || reconnectTimer !== null) return;
+  const delay = reconnectDelay;
+  reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, delay);
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: 'ping' }));
+    // 只在没有等待中的 pong 时才起一个超时器：连续 ping 不会反复续命
+    if (pongTimer === null) {
+      pongTimer = setTimeout(onPongTimeout, PONG_WAIT_MS);
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer !== null) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  if (pongTimer !== null) {
+    clearTimeout(pongTimer);
+    pongTimer = null;
+  }
+}
+
+// ping 发出后 PONG_WAIT_MS 内没收到 pong：连接已死，主动断开并重连
+function onPongTimeout() {
+  pongTimer = null;
+  if (!ws) return;
+  stopHeartbeat();
+  const dead = ws;
+  ws = null;
+  setConnStatus('连接超时，正在重连…');
+  try {
+    if (dead.terminate) dead.terminate();
+    else dead.close();
+  } catch {}
+  scheduleReconnect();
+}
+
+// 连接没建好时先排队，连上后按顺序发出；同类大厅操作只留最新的一条
+function sendOrQueue(msg) {
+  const isLobby = msg.type === 'match' || msg.type === 'create' || msg.type === 'join';
+  if (isLobby) pendingLobbyAction = { msg, sentOn: null };
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify(msg));
+    if (isLobby) pendingLobbyAction.sentOn = ws;
+    return;
+  }
+  if (isLobby) {
+    // 大厅操作只留最新的一条：先清掉已排队的旧操作
+    sendQueue = sendQueue.filter((d) => {
+      const t = JSON.parse(d).type;
+      return t !== 'match' && t !== 'create' && t !== 'join';
+    });
+  }
+  sendQueue.push(JSON.stringify(msg));
+  connect();
+}
+
+function flushQueue() {
+  if (!ws || ws.readyState !== 1) return;
+  while (sendQueue.length > 0) {
+    const data = sendQueue.shift();
+    ws.send(data);
+    if (pendingLobbyAction && JSON.parse(data).type === pendingLobbyAction.msg.type) {
+      pendingLobbyAction.sentOn = ws;
+    }
+  }
 }
 
 function handleMsg(msg) {
+  // waiting/created/start/error 都是大厅操作的服务端回应：收到即确认
+  if (msg.type === 'waiting' || msg.type === 'created' || msg.type === 'start' || msg.type === 'error') {
+    pendingLobbyAction = null;
+  }
   switch (msg.type) {
+    case 'pong':
+      // 心跳回包：连接还活着，取消超时判定
+      if (pongTimer !== null) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+      }
+      break;
     case 'online_count':
       if ($('stat-online')) {
         $('stat-online').textContent = `在线: ${msg.count}`;
@@ -214,9 +406,9 @@ function handleMsg(msg) {
       break;
     case 'undo_request':
       if (confirm('对方请求悔棋，是否同意？')) {
-        ws.send(JSON.stringify({ type: 'undo_accept' }));
+        sendOrQueue({ type: 'undo_accept' });
       } else {
-        ws.send(JSON.stringify({ type: 'undo_reject' }));
+        sendOrQueue({ type: 'undo_reject' });
       }
       break;
     case 'undo_accept':
@@ -685,7 +877,7 @@ function makeMove(row, col) {
     updateStatus();
     setTimeout(() => aiMove(), 500);
   } else {
-    ws.send(JSON.stringify({ type: 'move', row, col }));
+    sendOrQueue({ type: 'move', row, col });
     stopTimer();
   }
 }
@@ -781,28 +973,21 @@ canvas.addEventListener('click', (e) => {
 
 // Event listeners
 $('btn-cancel-wait').onclick = () => {
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'cancel' }));
-  }
+  pendingLobbyAction = null;
+  sendOrQueue({ type: 'cancel' });
   showScreen('screen-lobby');
 };
 
 $('btn-match').onclick = () => {
   aiMode = false;
-  if (!ws || ws.readyState !== 1) connect();
-  setTimeout(() => {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'match' }));
-  }, 100);
+  sendOrQueue({ type: 'match' });
 };
 
 $('btn-join').onclick = () => {
   aiMode = false;
   const id = $('input-room').value.trim();
   if (!id) return;
-  if (!ws || ws.readyState !== 1) connect();
-  setTimeout(() => {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'join', roomId: id }));
-  }, 100);
+  sendOrQueue({ type: 'join', roomId: id });
 };
 $('btn-ai').onclick = () => {
   aiMode = true;
@@ -828,8 +1013,8 @@ $('btn-undo').onclick = () => {
       drawBoard();
       playSound(400, 50);
     }
-  } else if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'undo_request' }));
+  } else {
+    sendOrQueue({ type: 'undo_request' });
   }
 };
 
@@ -839,8 +1024,8 @@ $('btn-chat').onclick = () => {
 
 $('btn-send-chat').onclick = () => {
   const text = $('chat-input').value.trim();
-  if (!text || !ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'chat', text }));
+  if (!text) return;
+  sendOrQueue({ type: 'chat', text });
   addChatMessage(text, true);
   $('chat-input').value = '';
 };
@@ -861,7 +1046,7 @@ $('btn-truth-submit').onclick = () => {
     $('truth-answer-text').textContent = answer;
     setTimeout(() => showScreen('screen-lobby'), 2000);
   } else {
-    ws.send(JSON.stringify({ type: 'truth_answer', answer }));
+    sendOrQueue({ type: 'truth_answer', answer });
     $('truth-input-area').classList.add('hidden');
     $('truth-result').classList.remove('hidden');
     $('truth-answer-text').textContent = answer;
@@ -874,7 +1059,7 @@ $('btn-again').onclick = () => {
   if (aiMode) {
     $('btn-ai').click();
   } else {
-    ws.send(JSON.stringify({ type: 'again' }));
+    sendOrQueue({ type: 'again' });
     $('btn-again').textContent = '等待对方同意...';
     $('btn-again').disabled = true;
     setTimeout(() => { $('btn-again').disabled = false; }, 3000);
@@ -945,10 +1130,7 @@ $('btn-close-settings').onclick = () => {
 
 $('btn-create').onclick = () => {
   aiMode = false;
-  if (!ws || ws.readyState !== 1) connect();
-  setTimeout(() => {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'create', settings: roomSettings }));
-  }, 100);
+  sendOrQueue({ type: 'create', settings: roomSettings });
 };
 
 // Init

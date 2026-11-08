@@ -2,6 +2,7 @@
 // 运行：npm test（node --test test/server.test.js test/client.test.js）
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const net = require('node:net');
 const WebSocket = require('ws');
 const {
   checkWin,
@@ -426,5 +427,132 @@ test('集成：加入已空房间（双方赛后都离开）返回错误且服�
     p1.close();
     p2.close();
     p3.close();
+  }
+});
+
+test('集成：应用层 ping 得到 pong', async () => {
+  const a = await connect();
+  try {
+    const t = track(a);
+    send(a, { type: 'ping' });
+    const pong = await t.waitFor('pong');
+    assert.equal(pong.type, 'pong');
+  } finally {
+    a.close();
+  }
+});
+
+test('集成：同一 clientId 的两个连接不互相匹配，第三人可与其中一人开局', async () => {
+  const a = await connect();
+  const b = await connect();
+  const c = await connect();
+  try {
+    const ta = track(a);
+    const tb = track(b);
+    const tc = track(c);
+    send(a, { type: 'hello', clientId: 'client-AAA' });
+    send(b, { type: 'hello', clientId: 'client-AAA' });
+    send(c, { type: 'hello', clientId: 'client-CCC' });
+    send(a, { type: 'match' });
+    await ta.waitFor('waiting');
+    send(b, { type: 'match' });
+    await tb.waitFor('waiting');
+    // 同一 clientId 的两个连接都留在队列里，谁都不开局
+    await sleep(500);
+    assert.ok(!ta.has('start'), '同一 clientId 的 a 不应和 b 开局');
+    assert.ok(!tb.has('start'), '同一 clientId 的 b 不应和 a 开局');
+    // 第三人进来：应与 a、b 其中一人开局，另一人继续等待
+    send(c, { type: 'match' });
+    await tc.waitFor('start');
+    await sleep(300);
+    assert.ok(ta.has('start') !== tb.has('start'), 'c 应只和 a、b 其中一人开局');
+  } finally {
+    a.close();
+    b.close();
+    c.close();
+  }
+});
+
+test('集成：同一 clientId 不能加入自己创建的房间', async () => {
+  const a = await connect();
+  const b = await connect();
+  const c = await connect();
+  try {
+    const ta = track(a);
+    const tb = track(b);
+    const tc = track(c);
+    send(a, { type: 'hello', clientId: 'client-AAA' });
+    send(b, { type: 'hello', clientId: 'client-AAA' });
+    send(c, { type: 'hello', clientId: 'client-CCC' });
+    send(a, { type: 'create', settings: { timer: 60, nsfw: false } });
+    const created = await ta.waitFor('created');
+    send(b, { type: 'join', roomId: created.roomId });
+    const err = await tb.waitFor('error');
+    assert.equal(err.msg, '无法加入该房间');
+    send(c, { type: 'join', roomId: created.roomId });
+    await tc.waitFor('start');
+    assert.ok(!tb.has('start'));
+  } finally {
+    a.close();
+    b.close();
+    c.close();
+  }
+});
+
+test('集成：不回 ws ping 的客户端会被服务端断开，正常客户端不受影响', async () => {
+  const srv2 = startServer(0, { heartbeatIntervalMs: 200 });
+  await new Promise((resolve) => srv2.server.once('listening', resolve));
+  const port2 = srv2.server.address().port;
+  // 原始 TCP 套接字：完成 WS 握手，但永远不回 ping 帧
+  const raw = net.connect(port2, '127.0.0.1');
+  let rawClosed = false;
+  raw.once('close', () => { rawClosed = true; });
+  try {
+    await new Promise((resolve, reject) => {
+      raw.once('connect', resolve);
+      raw.once('error', reject);
+    });
+    raw.write(
+      'GET / HTTP/1.1\r\n' +
+      'Host: 127.0.0.1\r\n' +
+      'Upgrade: websocket\r\n' +
+      'Connection: Upgrade\r\n' +
+      'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
+      'Sec-WebSocket-Version: 13\r\n\r\n'
+    );
+    const head = await new Promise((resolve, reject) => {
+      let buf = Buffer.alloc(0);
+      const timer = setTimeout(() => reject(new Error('no 101 response')), 3000);
+      raw.on('data', (chunk) => {
+        buf = Buffer.concat([buf, chunk]);
+        if (buf.includes('\r\n\r\n')) {
+          clearTimeout(timer);
+          resolve(buf.toString());
+        }
+      });
+      raw.once('error', reject);
+    });
+    assert.match(head, /101/);
+
+    // 对照组：正常 ws 客户端（自动回 pong），应一直活着
+    const healthy = new WebSocket(`ws://127.0.0.1:${port2}`);
+    await new Promise((resolve, reject) => {
+      healthy.once('open', resolve);
+      healthy.once('error', reject);
+    });
+    try {
+      // 服务端两轮心跳（200ms 一轮）后应断开原始套接字
+      const closed = rawClosed || await Promise.race([
+        new Promise((resolve) => raw.once('close', () => resolve(true))),
+        sleep(3000).then(() => false),
+      ]);
+      assert.equal(closed, true, '不回 ping 的客户端应在两轮心跳后被断开');
+      assert.equal(healthy.readyState, 1, '正常回 pong 的客户端应保持连接');
+    } finally {
+      healthy.close();
+    }
+  } finally {
+    try { raw.destroy(); } catch { /* ignore */ }
+    await srv2.close();
   }
 });
