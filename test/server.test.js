@@ -1,5 +1,5 @@
 // server.js 单测 + WebSocket 集成测试
-// 运行：npm test（node --test test/server.test.js）
+// 运行：npm test（node --test "test/*.test.js"）
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const WebSocket = require('ws');
@@ -377,5 +377,54 @@ test('集成：每秒超过 20 条消息被断开', async () => {
     assert.equal(code, 1008);
   } finally {
     try { a.close(); } catch { /* 已断开 */ }
+  }
+});
+
+test('集成：加入已空房间（双方赛后都离开）返回错误且服务不崩', async () => {
+  const p1 = await connect();
+  const p2 = await connect();
+  const p3 = await connect();
+  try {
+    const t1 = track(p1);
+    const t2 = track(p2);
+    const t3 = track(p3);
+    send(p1, { type: 'create', settings: { timer: 60, nsfw: false } });
+    const created = await t1.waitFor('created');
+    send(p2, { type: 'join', roomId: created.roomId });
+    await t2.waitFor('start');
+    await t1.waitFor('role');
+    await t2.waitFor('role');
+
+    // 9 手分胜负：p1 纵向五连
+    const moves = [[7, 7], [7, 8], [8, 7], [8, 8], [9, 7], [9, 8], [10, 7], [10, 8], [11, 7]];
+    for (let i = 0; i < moves.length; i++) {
+      const [row, col] = moves[i];
+      send(i % 2 === 0 ? p1 : p2, { type: 'move', row, col });
+      await t1.waitFor('move');
+      await t2.waitFor('move');
+    }
+    const win = await t1.waitFor('win');
+    await t2.waitFor('win');
+    assert.equal(win.winner, 1);
+
+    // 双方赛后各自建新房，从旧房间 detach，旧房间变 0 人但仍残留在 rooms 里
+    send(p1, { type: 'create' });
+    await t1.waitFor('created');
+    send(p2, { type: 'create' });
+    await t2.waitFor('created');
+    assert.equal(rooms.get(created.roomId).players.length, 0);
+
+    // 第三人加入旧房间号：应收到通用错误，空房间被清理，服务继续工作
+    send(p3, { type: 'join', roomId: created.roomId });
+    const err = await t3.waitFor('error');
+    assert.equal(err.msg, '无法加入该房间');
+    assert.equal(rooms.has(created.roomId), false);
+    send(p3, { type: 'create' });
+    const created3 = await t3.waitFor('created');
+    assert.ok(created3.roomId);
+  } finally {
+    p1.close();
+    p2.close();
+    p3.close();
   }
 });
