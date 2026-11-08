@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test test/server.test.js test/client.test.js"
   },
   "keywords": ["五子棋", "gomoku", "game", "h5", "websocket", "pwa"],
   "author": "LoganLazy",

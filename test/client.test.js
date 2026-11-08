@@ -1,6 +1,6 @@
 // public/game.js 客户端单测：在 vm 沙箱里加载真实前端脚本，
 // 用桩 WebSocket / DOM 驱动消息，验证开局状态重置。
-// 运行：npm test（node --test "test/*.test.js"）
+// 运行：npm test（node --test test/server.test.js test/client.test.js）
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

@@ -1,5 +1,5 @@
 // server.js 单测 + WebSocket 集成测试
-// 运行：npm test（node --test "test/*.test.js"）
+// 运行：npm test（node --test test/server.test.js test/client.test.js）
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const WebSocket = require('ws');
